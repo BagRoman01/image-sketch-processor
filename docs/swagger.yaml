@@ -1,0 +1,46 @@
+basePath: /api/
+definitions:
+  models.UploadResponse:
+    properties:
+      key:
+        type: string
+      location:
+        type: string
+      message:
+        type: string
+      size:
+        type: integer
+      url:
+        type: string
+    type: object
+host: localhost:8000
+info:
+  contact: {}
+  description: API для обработки изображений
+  title: Image Sketch Processor API
+  version: "1.0"
+paths:
+  /file/streaming:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Загружает файл напрямую в S3 без сохранения на диск
+      parameters:
+      - description: Файл для загрузки
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.UploadResponse'
+        "400":
+          description: Bad Request
+      summary: Загрузить файл в S3
+      tags:
+      - files
+swagger: "2.0"

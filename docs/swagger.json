@@ -1,0 +1,70 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "API для обработки изображений",
+        "title": "Image Sketch Processor API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8000",
+    "basePath": "/api/",
+    "paths": {
+        "/file/streaming": {
+            "post": {
+                "description": "Загружает файл напрямую в S3 без сохранения на диск",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Загрузить файл в S3",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "Файл для загрузки",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.UploadResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "models.UploadResponse": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "location": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

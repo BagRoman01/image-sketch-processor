@@ -11,27 +11,48 @@ import (
 )
 
 type InstanceConfig struct {
-	Host string `yaml:"host" envconfig:"app_host"`
-	Port int    `yaml:"port" envconfig:"app_port"`
+	Host string `yaml:"host" envconfig:"host"`
+	Port int    `yaml:"port" envconfig:"port"`
 }
 
-type ServiceConfig struct {
-	baseCfg.BaseServiceConfig
-	InstanceConfig InstanceConfig `yaml:"instance"`
+type Config struct {
+	baseCfg.BaseConfig
+	InstanceConfig  InstanceConfig  `yaml:"instance"`
+	S3StorageConfig S3StorageConfig `yaml:"s3storage"`
 }
 
-func NewServiceConfig() *ServiceConfig {
-	cfg := &ServiceConfig{
+type S3StorageConfig struct {
+	Region            string `yaml:"region" envconfig:"s3_region" default:"ru-central1"`
+	Bucket            string `yaml:"bucket" envconfig:"s3_bucket" default:"files"`
+	AccessKeyID       string `yaml:"access_key_id" envconfig:"s3_access_key_id"`
+	SecretAccessKey   string `yaml:"secret_access_key" envconfig:"s3_secret_access_key"`
+	Endpoint          string `yaml:"endpoint" envconfig:"s3_endpoint"`
+	UseSSL            bool   `yaml:"use_ssl" envconfig:"s3_use_ssl" default:"false"`
+	MaxUploadSize     int64  `yaml:"max_upload_size" envconfig:"s3_max_upload_size"`
+	ChunkUploadSize   int64  `yaml:"chunk_upload_size" envconfig:"s3_chunk_upload_size"`
+	UploadConcurrency uint16 `yaml:"upload_concurrency" envconfig:"upload_concurrency"`
+}
+
+func NewConfig() *Config {
+	cfg := &Config{
 		InstanceConfig: InstanceConfig{
 			Host: "0.0.0.0",
 			Port: 80,
+		},
+		S3StorageConfig: S3StorageConfig{
+			AccessKeyID:       "s3_access_key_id",
+			SecretAccessKey:   "s3_secret_access_key",
+			Endpoint:          "http://s3-storage:9000",
+			MaxUploadSize:     104857600,
+			ChunkUploadSize:   5242880,
+			UploadConcurrency: 5,
 		},
 	}
 	return cfg.Fill()
 }
 
-func (c *ServiceConfig) Fill() *ServiceConfig {
-	if err := defaults.Set(&c.BaseServiceConfig); err != nil {
+func (c *Config) Fill() *Config {
+	if err := defaults.Set(&c.BaseConfig); err != nil {
 		panic(err)
 	}
 
@@ -45,7 +66,7 @@ func (c *ServiceConfig) Fill() *ServiceConfig {
 	return c
 }
 
-func loadYaml(c *ServiceConfig) error {
+func loadYaml(c *Config) error {
 	if _, err := os.Stat(c.ConfigPath); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {

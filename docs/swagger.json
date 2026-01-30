@@ -43,9 +43,94 @@
                     }
                 }
             }
+        },
+        "/tasks/{task_id}/status": {
+            "get": {
+                "description": "Возвращает текущий статус задачи по ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Получить статус обработки файла",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID задачи",
+                        "name": "task_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.FileTask"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "models.FileTask": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "file_key": {
+                    "type": "string"
+                },
+                "file_name": {
+                    "type": "string"
+                },
+                "file_size": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/models.TaskStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.TaskStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "processing",
+                "completed",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "TaskStatusPending",
+                "TaskStatusProcessing",
+                "TaskStatusCompleted",
+                "TaskStatusFailed"
+            ]
+        },
         "models.UploadResponse": {
             "type": "object",
             "properties": {
@@ -60,6 +145,12 @@
                 },
                 "size": {
                     "type": "integer"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "task_status": {
+                    "type": "string"
                 },
                 "url": {
                     "type": "string"

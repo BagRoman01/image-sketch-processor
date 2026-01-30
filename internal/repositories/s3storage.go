@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"mime/multipart"
 	"time"
 
 	"github.com/BagRoman01/image-sketch-processor/internal/config"
+	"github.com/BagRoman01/image-sketch-processor/internal/logging"
+	"github.com/BagRoman01/image-sketch-processor/internal/models"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -26,6 +30,11 @@ func NewS3Repository(
 	cfg *config.S3StorageConfig,
 	ctx context.Context,
 ) (*S3Repository, error) {
+	slog.Debug("loading AWS config",
+		"region", cfg.Region,
+		"endpoint", cfg.Endpoint,
+	)
+
 	awsCfg, err := awsconfig.LoadDefaultConfig(
 		ctx,
 		awsconfig.WithCredentialsProvider(
@@ -50,8 +59,13 @@ func NewS3Repository(
 
 	uploader := manager.NewUploader(client, func(u *manager.Uploader) {
 		u.PartSize = cfg.ChunkUploadSize
-		u.Concurrency = 1
+		u.Concurrency = int(cfg.UploadConcurrency)
 	})
+
+	slog.Debug("S3 client created",
+		"part_size", cfg.ChunkUploadSize,
+		"concurrency", cfg.UploadConcurrency,
+	)
 
 	return &S3Repository{
 		client:   client,
@@ -80,8 +94,13 @@ func (s *S3Repository) CreateBucket(ctx context.Context) error {
 
 		if errors.As(err, &bucketExists) {
 			if s.isBucketAccessible(ctx) {
+				slog.Debug("bucket already exists and is accessible", "bucket", s.cfg.Bucket)
 				return nil
 			}
+			slog.Error("bucket name taken by another account",
+				"bucket", s.cfg.Bucket,
+				"error", err,
+			)
 			return fmt.Errorf(
 				"bucket name '%s' already taken by another account: %w",
 				s.cfg.Bucket,
@@ -90,13 +109,22 @@ func (s *S3Repository) CreateBucket(ctx context.Context) error {
 		}
 
 		if errors.As(err, &bucketOwnedByYou) {
+			slog.Debug("bucket already owned by you", "bucket", s.cfg.Bucket)
 			return nil
 		}
 
+		slog.Error("failed to create bucket",
+			"bucket", s.cfg.Bucket,
+			"error", err,
+		)
 		return fmt.Errorf("failed to create bucket: %w", err)
 	}
 
+	slog.Info("bucket created successfully", "bucket", s.cfg.Bucket)
+
 	if isAWS {
+		slog.Debug("waiting for bucket to become available", "bucket", s.cfg.Bucket)
+
 		waiter := s3.NewBucketExistsWaiter(s.client)
 		waitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
@@ -106,12 +134,18 @@ func (s *S3Repository) CreateBucket(ctx context.Context) error {
 		}, time.Minute)
 
 		if err != nil {
+			slog.Error("bucket not accessible after timeout",
+				"bucket", s.cfg.Bucket,
+				"error", err,
+			)
 			return fmt.Errorf(
 				"bucket '%s' created but not accessible after timeout: %w",
 				s.cfg.Bucket,
 				err,
 			)
 		}
+
+		slog.Debug("bucket is now accessible", "bucket", s.cfg.Bucket)
 	}
 
 	return nil
@@ -129,7 +163,13 @@ func (s *S3Repository) UploadFileStream(
 	fileHeader *multipart.FileHeader,
 	key string,
 ) (*manager.UploadOutput, error) {
+	logger := logging.LoggerFromContext(ctx)
+
 	if s.cfg.MaxUploadSize > 0 && fileHeader.Size > s.cfg.MaxUploadSize {
+		logger.Warn("file size exceeds maximum allowed",
+			"size", fileHeader.Size,
+			"max_size", s.cfg.MaxUploadSize,
+		)
 		return nil, fmt.Errorf(
 			"file size %d exceeds maximum allowed size %d",
 			fileHeader.Size,
@@ -139,6 +179,7 @@ func (s *S3Repository) UploadFileStream(
 
 	file, err := fileHeader.Open()
 	if err != nil {
+		logger.Error("failed to open uploaded file", "error", err)
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
@@ -155,6 +196,11 @@ func (s *S3Repository) UploadFileStream(
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
+		logger.Error("S3 upload failed",
+			"error", err,
+			"bucket", s.cfg.Bucket,
+			"key", key,
+		)
 		return nil, fmt.Errorf("failed to upload file to S3: %w", err)
 	}
 
@@ -176,4 +222,43 @@ func (s *S3Repository) GetFileURL(key string) string {
 		s.cfg.Region,
 		key,
 	)
+}
+
+func (s *S3Repository) DownloadFile(
+	ctx context.Context,
+	key string,
+) (io.ReadCloser, *models.FileMetadata, error) {
+	logger := logging.LoggerFromContext(ctx)
+	if key == "" {
+		return nil, nil, fmt.Errorf("file key is required")
+	}
+
+	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.cfg.Bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to download %q from S3 bucket %q: %w", key, s.cfg.Bucket, err)
+	}
+
+	contentLength := aws.ToInt64(result.ContentLength)
+
+	metadata := &models.FileMetadata{
+		ContentType:   aws.ToString(result.ContentType),
+		ContentLength: contentLength,
+	}
+
+	if result.Metadata != nil {
+		if originalName, ok := result.Metadata["original-filename"]; ok {
+			metadata.FileName = originalName
+		}
+	}
+
+	logger.Info("Downloaded file",
+		"key", key,
+		"size", contentLength,
+		"type", metadata.ContentType,
+	)
+
+	return result.Body, metadata, nil
 }

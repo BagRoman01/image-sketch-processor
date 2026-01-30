@@ -6,14 +6,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterFilesRoutes(
+func RegisterTasksRoutes(
 	r *gin.RouterGroup,
 	serviceInjector *injectors.ServiceInjector,
 ) {
-	handler := handlers.NewFilesHandler(serviceInjector)
+	handler := handlers.NewTasksHandler(serviceInjector)
 
-	upload := r.Group("/file")
+	tasks := r.Group("/tasks")
 	{
-		upload.POST("/streaming", handler.UploadFileStreaming)
+		tasks.GET("/:task_id/status", handler.GetTaskStatus)
 	}
 }

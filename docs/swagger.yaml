@@ -1,0 +1,108 @@
+basePath: /api/
+definitions:
+  models.FileTask:
+    properties:
+      content_type:
+        type: string
+      created_at:
+        type: string
+      error:
+        type: string
+      file_key:
+        type: string
+      file_name:
+        type: string
+      file_size:
+        type: integer
+      id:
+        type: string
+      status:
+        $ref: '#/definitions/models.TaskStatus'
+      updated_at:
+        type: string
+    type: object
+  models.TaskStatus:
+    enum:
+    - pending
+    - processing
+    - completed
+    - failed
+    type: string
+    x-enum-varnames:
+    - TaskStatusPending
+    - TaskStatusProcessing
+    - TaskStatusCompleted
+    - TaskStatusFailed
+  models.UploadResponse:
+    properties:
+      key:
+        type: string
+      location:
+        type: string
+      message:
+        type: string
+      size:
+        type: integer
+      task_id:
+        type: string
+      task_status:
+        type: string
+      url:
+        type: string
+    type: object
+host: localhost:8000
+info:
+  contact: {}
+  description: API для обработки изображений
+  title: Image Sketch Processor API
+  version: "1.0"
+paths:
+  /file/streaming:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Загружает файл напрямую в S3 без сохранения на диск
+      parameters:
+      - description: Файл для загрузки
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.UploadResponse'
+        "400":
+          description: Bad Request
+      summary: Загрузить файл в S3
+      tags:
+      - files
+  /tasks/{task_id}/status:
+    get:
+      description: Возвращает текущий статус задачи по ID
+      parameters:
+      - description: ID задачи
+        in: path
+        name: task_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.FileTask'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Получить статус обработки файла
+      tags:
+      - tasks
+swagger: "2.0"

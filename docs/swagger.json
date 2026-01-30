@@ -1,0 +1,161 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "API для обработки изображений",
+        "title": "Image Sketch Processor API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8000",
+    "basePath": "/api/",
+    "paths": {
+        "/file/streaming": {
+            "post": {
+                "description": "Загружает файл напрямую в S3 без сохранения на диск",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Загрузить файл в S3",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "Файл для загрузки",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.UploadResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    }
+                }
+            }
+        },
+        "/tasks/{task_id}/status": {
+            "get": {
+                "description": "Возвращает текущий статус задачи по ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Получить статус обработки файла",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID задачи",
+                        "name": "task_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.FileTask"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "models.FileTask": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "file_key": {
+                    "type": "string"
+                },
+                "file_name": {
+                    "type": "string"
+                },
+                "file_size": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/models.TaskStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.TaskStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "processing",
+                "completed",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "TaskStatusPending",
+                "TaskStatusProcessing",
+                "TaskStatusCompleted",
+                "TaskStatusFailed"
+            ]
+        },
+        "models.UploadResponse": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "location": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "task_status": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

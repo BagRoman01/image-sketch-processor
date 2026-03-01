@@ -8,7 +8,7 @@ import (
 
 	"github.com/BagRoman01/image-sketch-processor/internal/messaging/rabbitmq"
 	"github.com/BagRoman01/image-sketch-processor/internal/models"
-	ut "github.com/BagRoman01/image-sketch-processor/internal/utils"
+	ut "github.com/BagRoman01/image-sketch-processor/pkg/utils"
 )
 
 type ProcessingService struct {

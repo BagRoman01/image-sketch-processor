@@ -13,7 +13,7 @@ type Config struct {
 	InstanceConfig  InstanceConfig  `yaml:"instance"`
 	S3StorageConfig S3StorageConfig `yaml:"s3storage"`
 	RedisConfig     RedisConfig     `yaml:"redis"`
-	RabbitMQConfig  RabbitMQConfig  `yaml:"rabbitMQ"`
+	RabbitMQConfig  RabbitMQConfig  `yaml:"rabbitmq"`
 	LogConfig       LogConfig       `yaml:"logging"`
 	ConfigPath      string          `envconfig:"config_path"`
 }

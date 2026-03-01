@@ -1,0 +1,70 @@
+version: '3.8'
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    volumes: 
+      - ./config.yaml:/app/config.yaml:ro
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy     
+      rabbitmq:
+        condition: service_healthy    
+    environment:
+      - CONFIG_PATH=/app/config.yaml
+      - LOG_LEVEL=debug
+    networks:
+      - app-net
+    restart: unless-stopped  
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    volumes: [redis_data:/data]
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports: ["5672:5672", "15672:15672"]
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes: [rabbitmq_data:/var/lib/rabbitmq]
+    networks:
+      - app-net
+    healthcheck:                       
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 40s
+
+  rustfs:
+    image: rustfs/rustfs:alpha
+    environment:
+      - RUSTFS_ADDRESS=0.0.0.0:9000
+      - RUSTFS_ACCESS_KEY=admin
+      - RUSTFS_SECRET_KEY=admin
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    networks:
+      - app-net
+    restart: unless-stopped
+
+
+volumes:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  app-net:

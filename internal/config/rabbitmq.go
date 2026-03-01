@@ -1,8 +1,8 @@
 package config
 
 type RabbitMQConfig struct {
-	URL       string `yaml:"url" envconfig:"rabbitmq_url"`
-	QueueName string `yaml:"queue_name" envconfig:"rabbitmq_queue_name"`
+	URL       string `yaml:"url"   envconfig:"rabbitmq_url"`
+	QueueName string `yaml:"queue" envconfig:"rabbitmq_queue_name"`
 }
 
 func NewRabbitMQConfig() *RabbitMQConfig {

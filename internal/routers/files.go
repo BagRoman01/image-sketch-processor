@@ -12,8 +12,5 @@ func RegisterFilesRoutes(
 ) {
 	handler := handlers.NewFilesHandler(serviceInjector)
 
-	upload := r.Group("/file")
-	{
-		upload.POST("/streaming", handler.UploadFileStreaming)
-	}
+	r.POST("/files", handler.UploadFileStreaming)
 }

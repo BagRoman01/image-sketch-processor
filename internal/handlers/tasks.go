@@ -1,7 +1,8 @@
-// handlers/tasks_handler.go (НОВЫЙ ФАЙЛ)
 package handlers
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/BagRoman01/image-sketch-processor/internal/injectors"
@@ -24,21 +25,23 @@ func NewTasksHandler(
 
 // GetTaskStatus godoc
 // @Summary      Получить статус обработки файла
-// @Description  Возвращает текущий статус задачи по ID
+// @Description  Получить текущий статус задачи по ID
 // @Tags         tasks
 // @Produce      application/json
-// @Param        task_id  path  string  true  "ID задачи"
-// @Success      200  {object}  models.FileTask
-// @Failure      404  {object}  map[string]string
-// @Router       /tasks/{task_id}/status [get]
+// @Param        id  path  string  true  "ID задачи"
+// @Success      200  {object}  models.S3FileTask "Задача"
+// @Failure      404  {object}  map[string]string "Задача не найдена"
+// @Router       /tasks/{id} [get]
 func (h *TasksHandler) GetTaskStatus(c *gin.Context) {
 	logger := logging.LoggerFromContext(c.Request.Context())
-	taskID := c.Param("task_id")
+	taskID := c.Param("id")
 
-	task, err := h.TaskService.GetTaskStatus(c.Request.Context(), taskID)
+	task, err := h.TaskService.GetTask(c.Request.Context(), taskID)
 	if err != nil {
-		logger.Warn("task not found", "task_id", taskID, "error", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		if errors.Is(err, fmt.Errorf("task not found")) {
+			logger.Warn("task not found", "task_id", taskID, "error", err)
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 		return
 	}
 

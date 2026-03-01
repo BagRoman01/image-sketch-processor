@@ -1,20 +1,38 @@
 basePath: /api/
 definitions:
-  models.FileTask:
+  models.Content:
     properties:
+      content_size:
+        type: integer
       content_type:
         type: string
-      created_at:
-        type: string
-      error:
+    type: object
+  models.S3FileInfo:
+    properties:
+      content:
+        $ref: '#/definitions/models.Content'
+      file_id:
         type: string
       file_key:
         type: string
       file_name:
         type: string
-      file_size:
-        type: integer
+    type: object
+  models.S3FileTask:
+    properties:
+      completed_at:
+        type: string
+      created_at:
+        type: string
+      download_url:
+        type: string
+      error:
+        type: string
+      file_info:
+        $ref: '#/definitions/models.S3FileInfo'
       id:
+        type: string
+      processed_key:
         type: string
       status:
         $ref: '#/definitions/models.TaskStatus'
@@ -37,8 +55,6 @@ definitions:
     properties:
       key:
         type: string
-      location:
-        type: string
       message:
         type: string
       size:
@@ -57,13 +73,13 @@ info:
   title: Image Sketch Processor API
   version: "1.0"
 paths:
-  /file/streaming:
+  /files:
     post:
       consumes:
       - multipart/form-data
-      description: Загружает файл напрямую в S3 без сохранения на диск
+      description: Загружает изображение в S3 и создает задачу на .
       parameters:
-      - description: Файл для загрузки
+      - description: Изображение (JPG, PNG, max 10MB)
         in: formData
         name: file
         required: true
@@ -72,32 +88,42 @@ paths:
       - application/json
       responses:
         "200":
-          description: OK
+          description: Task создана, файл в S3
           schema:
             $ref: '#/definitions/models.UploadResponse'
         "400":
-          description: Bad Request
-      summary: Загрузить файл в S3
+          description: Неверный файл
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка сервера
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Создать задачу на обработку изображения
       tags:
       - files
-  /tasks/{task_id}/status:
+  /tasks/{id}:
     get:
-      description: Возвращает текущий статус задачи по ID
+      description: Получить текущий статус задачи по ID
       parameters:
       - description: ID задачи
         in: path
-        name: task_id
+        name: id
         required: true
         type: string
       produces:
       - application/json
       responses:
         "200":
-          description: OK
+          description: Задача
           schema:
-            $ref: '#/definitions/models.FileTask'
+            $ref: '#/definitions/models.S3FileTask'
         "404":
-          description: Not Found
+          description: Задача не найдена
           schema:
             additionalProperties:
               type: string

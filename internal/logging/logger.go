@@ -24,7 +24,11 @@ func InitLogger(cfg *config.LogConfig) (*slog.Logger, error) {
 		if err := os.MkdirAll(filepath.Dir(cfg.FilePath), 0755); err != nil {
 			return nil, fmt.Errorf("failed to create log directory: %w", err)
 		}
-		file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		file, err := os.OpenFile(
+			cfg.FilePath,
+			os.O_CREATE|os.O_WRONLY|os.O_APPEND,
+			0644,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open log file: %w", err)
 		}
@@ -50,7 +54,9 @@ func InitLogger(cfg *config.LogConfig) (*slog.Logger, error) {
 					case "unix":
 						a.Value = slog.Int64Value(t.Unix())
 					case "iso8601":
-						a.Value = slog.StringValue(t.UTC().Format("2006-01-02T15:04:05.000Z07:00"))
+						a.Value = slog.StringValue(
+							t.UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+						)
 					default: // rfc3339
 						a.Value = slog.StringValue(t.UTC().Format(time.RFC3339))
 					}
@@ -66,7 +72,9 @@ func InitLogger(cfg *config.LogConfig) (*slog.Logger, error) {
 					if idx := strings.LastIndex(funcName, "/"); idx != -1 {
 						funcName = funcName[idx+1:]
 					}
-					a.Value = slog.StringValue(fmt.Sprintf("%s:%d", funcName, source.Line))
+					a.Value = slog.StringValue(
+						fmt.Sprintf("%s:%d", funcName, source.Line),
+					)
 				}
 			}
 

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,67 +25,96 @@ import (
 // @BasePath        /api/
 func main() {
 	cfg := config.NewConfig()
-	mainCtx, stop := signal.NotifyContext(
+
+	// Инициализация логгера
+	_, err := logging.InitLogger(&cfg.LogConfig)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Контекст для всего приложения (отменяется по сигналу)
+	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		syscall.SIGINT,
 		syscall.SIGTERM,
 	)
 	defer stop()
 
-	logger, err := logging.InitLogger(&cfg.LogConfig)
+	// Контекст для инициализации с таймаутом
+	initCtx, initCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer initCancel()
+
+	slog.Info("initializing service dependencies")
+	serviceInjector, err := injectors.NewServiceInjector(initCtx, cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			slog.Error("service initialization timed out after 30s")
+		case errors.Is(err, context.Canceled):
+			slog.Error("service initialization cancelled by signal")
+		default:
+			slog.Error("failed to initialize services", "error", err)
+		}
 		os.Exit(1)
 	}
+	slog.Info("service dependencies initialized successfully")
 
-	logger.Info("initializing service dependencies")
-	serviceInjector, err := injectors.NewServiceInjector(mainCtx, cfg)
-	if err != nil {
-		logger.Error("failed to initialize services", "error", err)
-		os.Exit(1)
-	}
-	logger.Info("service dependencies initialized successfully")
-
+	// Роутер
 	r := routers.SetupRouter(serviceInjector)
 
-	addr := fmt.Sprintf(
-		"%s:%d",
-		cfg.InstanceConfig.Host,
-		cfg.InstanceConfig.Port,
-	)
-
+	// HTTP сервер
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:    cfg.InstanceConfig.Address(),
+		Handler: r,
 	}
 
-	logger.Info("server starting",
-		"address", addr,
-		"host", cfg.InstanceConfig.Host,
-		"port", cfg.InstanceConfig.Port,
-	)
+	// Канал для ошибок сервера
+	serverErrors := make(chan error, 1)
 
+	// Запуск сервера в горутине
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server failed", "error", err)
-			os.Exit(1)
-		}
+		slog.Info("server starting",
+			"address", cfg.InstanceConfig.Address(),
+			"host", cfg.InstanceConfig.Host,
+			"port", cfg.InstanceConfig.Port,
+		)
+		serverErrors <- srv.ListenAndServe()
 	}()
 
-	logger.Info("waiting for shutdown signal...")
-	<-mainCtx.Done()
-
-	logger.Info("starting graceful shutdown")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Error("shutdown failed", "error", err)
-	} else {
-		logger.Info("graceful shutdown completed")
+	// Ожидание сигнала завершения или ошибки сервера
+	select {
+	case err := <-serverErrors:
+		if err != nil && err != http.ErrServerClosed {
+			slog.Error("server failed", "error", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		slog.Info("shutdown signal received")
 	}
 
+	// Graceful shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(
+		context.Background(), 1*time.Minute,
+	)
+	defer shutdownCancel()
+
+	// Останавливаем HTTP сервер
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("HTTP server shutdown failed", "error", err)
+	} else {
+		slog.Info("HTTP server shutdown completed")
+	}
+
+	if err := serviceInjector.Shutdown(shutdownCtx); err != nil {
+		slog.Error("service injector shutdown failed", "error", err)
+		// Проверяем, не превысили ли таймаут
+		if errors.Is(err, context.DeadlineExceeded) {
+			slog.Warn(
+				"shutdown timed out, some resources may not be closed properly",
+			)
+		}
+	} else {
+		slog.Info("service injector shutdown completed")
+	}
 }

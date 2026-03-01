@@ -1,11 +1,11 @@
 package repositories
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"mime/multipart"
 	"time"
 
@@ -21,20 +21,16 @@ import (
 )
 
 type S3Repository struct {
-	client   *s3.Client
-	uploader *manager.Uploader
-	cfg      *config.S3StorageConfig
+	client        *s3.Client
+	presignClient *s3.PresignClient
+	uploader      *manager.Uploader
+	cfg           *config.S3StorageConfig
 }
 
 func NewS3Repository(
-	cfg *config.S3StorageConfig,
 	ctx context.Context,
+	cfg *config.S3StorageConfig,
 ) (*S3Repository, error) {
-	slog.Debug("loading AWS config",
-		"region", cfg.Region,
-		"endpoint", cfg.Endpoint,
-	)
-
 	awsCfg, err := awsconfig.LoadDefaultConfig(
 		ctx,
 		awsconfig.WithCredentialsProvider(
@@ -62,19 +58,17 @@ func NewS3Repository(
 		u.Concurrency = int(cfg.UploadConcurrency)
 	})
 
-	slog.Debug("S3 client created",
-		"part_size", cfg.ChunkUploadSize,
-		"concurrency", cfg.UploadConcurrency,
-	)
-
 	return &S3Repository{
-		client:   client,
-		cfg:      cfg,
-		uploader: uploader,
+		client:        client,
+		presignClient: s3.NewPresignClient(client),
+		cfg:           cfg,
+		uploader:      uploader,
 	}, nil
 }
 
 func (s *S3Repository) CreateBucket(ctx context.Context) error {
+	logger := logging.LoggerFromContext(ctx)
+
 	input := &s3.CreateBucketInput{
 		Bucket: aws.String(s.cfg.Bucket),
 	}
@@ -88,67 +82,61 @@ func (s *S3Repository) CreateBucket(ctx context.Context) error {
 	}
 
 	_, err := s.client.CreateBucket(ctx, input)
-	if err != nil {
-		var bucketExists *s3Types.BucketAlreadyExists
-		var bucketOwnedByYou *s3Types.BucketAlreadyOwnedByYou
-
-		if errors.As(err, &bucketExists) {
-			if s.isBucketAccessible(ctx) {
-				slog.Debug("bucket already exists and is accessible", "bucket", s.cfg.Bucket)
-				return nil
+	if err == nil {
+		if isAWS {
+			if waitErr := s.waitForBucket(ctx); waitErr != nil {
+				logger.Warn("bucket created but not immediately accessible",
+					"bucket", s.cfg.Bucket, "error", waitErr)
+			} else {
+				logger.Info("bucket created and accessible", "bucket", s.cfg.Bucket)
 			}
-			slog.Error("bucket name taken by another account",
-				"bucket", s.cfg.Bucket,
-				"error", err,
-			)
-			return fmt.Errorf(
-				"bucket name '%s' already taken by another account: %w",
-				s.cfg.Bucket,
-				err,
-			)
 		}
+		return nil
+	}
 
-		if errors.As(err, &bucketOwnedByYou) {
-			slog.Debug("bucket already owned by you", "bucket", s.cfg.Bucket)
+	var bucketExists *s3Types.BucketAlreadyExists
+	var bucketOwnedByYou *s3Types.BucketAlreadyOwnedByYou
+
+	if errors.As(err, &bucketExists) || errors.As(err, &bucketOwnedByYou) {
+		if s.isBucketAccessible(ctx) {
+			logger.Info("bucket already exists and is accessible",
+				"bucket", s.cfg.Bucket)
 			return nil
 		}
 
-		slog.Error("failed to create bucket",
-			"bucket", s.cfg.Bucket,
-			"error", err,
+		logger.Warn("bucket exists but not accessible",
+			"bucket", s.cfg.Bucket, "error", err)
+		return fmt.Errorf(
+			"bucket %s exists but inaccessible: %w",
+			s.cfg.Bucket,
+			err,
 		)
-		return fmt.Errorf("failed to create bucket: %w", err)
 	}
 
-	slog.Info("bucket created successfully", "bucket", s.cfg.Bucket)
+	logger.Error("failed to create bucket",
+		"bucket", s.cfg.Bucket, "error", err)
+	return fmt.Errorf(
+		"failed to create/access bucket %s: %w",
+		s.cfg.Bucket,
+		err,
+	)
+}
 
-	if isAWS {
-		slog.Debug("waiting for bucket to become available", "bucket", s.cfg.Bucket)
+func (s *S3Repository) waitForBucket(ctx context.Context) error {
+	logger := logging.LoggerFromContext(ctx)
+	logger.Debug(
+		"waiting for bucket to become available",
+		"bucket",
+		s.cfg.Bucket,
+	)
 
-		waiter := s3.NewBucketExistsWaiter(s.client)
-		waitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
+	waiter := s3.NewBucketExistsWaiter(s.client)
+	waitCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+	defer cancel()
 
-		err = waiter.Wait(waitCtx, &s3.HeadBucketInput{
-			Bucket: aws.String(s.cfg.Bucket),
-		}, time.Minute)
-
-		if err != nil {
-			slog.Error("bucket not accessible after timeout",
-				"bucket", s.cfg.Bucket,
-				"error", err,
-			)
-			return fmt.Errorf(
-				"bucket '%s' created but not accessible after timeout: %w",
-				s.cfg.Bucket,
-				err,
-			)
-		}
-
-		slog.Debug("bucket is now accessible", "bucket", s.cfg.Bucket)
-	}
-
-	return nil
+	return waiter.Wait(waitCtx, &s3.HeadBucketInput{
+		Bucket: aws.String(s.cfg.Bucket),
+	}, time.Minute)
 }
 
 func (s *S3Repository) isBucketAccessible(ctx context.Context) bool {
@@ -163,13 +151,7 @@ func (s *S3Repository) UploadFileStream(
 	fileHeader *multipart.FileHeader,
 	key string,
 ) (*manager.UploadOutput, error) {
-	logger := logging.LoggerFromContext(ctx)
-
 	if s.cfg.MaxUploadSize > 0 && fileHeader.Size > s.cfg.MaxUploadSize {
-		logger.Warn("file size exceeds maximum allowed",
-			"size", fileHeader.Size,
-			"max_size", s.cfg.MaxUploadSize,
-		)
 		return nil, fmt.Errorf(
 			"file size %d exceeds maximum allowed size %d",
 			fileHeader.Size,
@@ -179,8 +161,7 @@ func (s *S3Repository) UploadFileStream(
 
 	file, err := fileHeader.Open()
 	if err != nil {
-		logger.Error("failed to open uploaded file", "error", err)
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return nil, fmt.Errorf("failed to open uploaded file: %w", err)
 	}
 	defer file.Close()
 
@@ -196,12 +177,7 @@ func (s *S3Repository) UploadFileStream(
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
-		logger.Error("S3 upload failed",
-			"error", err,
-			"bucket", s.cfg.Bucket,
-			"key", key,
-		)
-		return nil, fmt.Errorf("failed to upload file to S3: %w", err)
+		return nil, fmt.Errorf("failed to upload file %s to S3: %w", key, err)
 	}
 
 	return result, nil
@@ -227,8 +203,7 @@ func (s *S3Repository) GetFileURL(key string) string {
 func (s *S3Repository) DownloadFile(
 	ctx context.Context,
 	key string,
-) (io.ReadCloser, *models.FileMetadata, error) {
-	logger := logging.LoggerFromContext(ctx)
+) (io.ReadCloser, *models.Content, error) {
 	if key == "" {
 		return nil, nil, fmt.Errorf("file key is required")
 	}
@@ -237,28 +212,61 @@ func (s *S3Repository) DownloadFile(
 		Bucket: aws.String(s.cfg.Bucket),
 		Key:    aws.String(key),
 	})
+
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to download %q from S3 bucket %q: %w", key, s.cfg.Bucket, err)
+		return nil, nil, fmt.Errorf(
+			"failed to download %q from S3 bucket %q: %w",
+			key, s.cfg.Bucket, err,
+		)
 	}
 
 	contentLength := aws.ToInt64(result.ContentLength)
 
-	metadata := &models.FileMetadata{
+	content := &models.Content{
 		ContentType:   aws.ToString(result.ContentType),
 		ContentLength: contentLength,
 	}
 
-	if result.Metadata != nil {
-		if originalName, ok := result.Metadata["original-filename"]; ok {
-			metadata.FileName = originalName
-		}
+	return result.Body, content, nil
+}
+
+func (s *S3Repository) UploadData(
+	ctx context.Context,
+	key string,
+	data []byte,
+	contentType string,
+) (*manager.UploadOutput, error) {
+	if s.cfg.MaxUploadSize > 0 && int64(len(data)) > s.cfg.MaxUploadSize {
+		return nil, fmt.Errorf(
+			"size %d exceeds max %d",
+			len(data), s.cfg.MaxUploadSize,
+		)
 	}
 
-	logger.Info("Downloaded file",
-		"key", key,
-		"size", contentLength,
-		"type", metadata.ContentType,
-	)
+	result, err := s.uploader.Upload(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(s.cfg.Bucket),
+		Key:         aws.String(key),
+		Body:        bytes.NewReader(data),
+		ContentType: aws.String(contentType),
+	})
+	return result, err
+}
 
-	return result.Body, metadata, nil
+func (s *S3Repository) GenerateDownloadURL(
+	ctx context.Context,
+	fileKey string,
+	expiresIn time.Duration,
+) (string, error) {
+	request, err := s.presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.cfg.Bucket),
+		Key:    aws.String(fileKey),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = expiresIn
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("failed to presign request: %w", err)
+	}
+
+	return request.URL, nil
 }

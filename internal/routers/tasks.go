@@ -14,6 +14,6 @@ func RegisterTasksRoutes(
 
 	tasks := r.Group("/tasks")
 	{
-		tasks.GET("/:task_id/status", handler.GetTaskStatus)
+		tasks.GET("/:id", handler.GetTaskStatus)
 	}
 }

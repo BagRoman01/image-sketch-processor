@@ -15,9 +15,9 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/file/streaming": {
+        "/files": {
             "post": {
-                "description": "Загружает файл напрямую в S3 без сохранения на диск",
+                "description": "Загружает изображение в S3 и создает задачу на .",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -27,11 +27,11 @@ const docTemplate = `{
                 "tags": [
                     "files"
                 ],
-                "summary": "Загрузить файл в S3",
+                "summary": "Создать задачу на обработку изображения",
                 "parameters": [
                     {
                         "type": "file",
-                        "description": "Файл для загрузки",
+                        "description": "Изображение (JPG, PNG, max 10MB)",
                         "name": "file",
                         "in": "formData",
                         "required": true
@@ -39,20 +39,35 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Task создана, файл в S3",
                         "schema": {
                             "$ref": "#/definitions/models.UploadResponse"
                         }
                     },
                     "400": {
-                        "description": "Bad Request"
+                        "description": "Неверный файл",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Ошибка сервера",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
                     }
                 }
             }
         },
-        "/tasks/{task_id}/status": {
+        "/tasks/{id}": {
             "get": {
-                "description": "Возвращает текущий статус задачи по ID",
+                "description": "Получить текущий статус задачи по ID",
                 "produces": [
                     "application/json"
                 ],
@@ -64,20 +79,20 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "description": "ID задачи",
-                        "name": "task_id",
+                        "name": "id",
                         "in": "path",
                         "required": true
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Задача",
                         "schema": {
-                            "$ref": "#/definitions/models.FileTask"
+                            "$ref": "#/definitions/models.S3FileTask"
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Задача не найдена",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -90,16 +105,24 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "models.FileTask": {
+        "models.Content": {
             "type": "object",
             "properties": {
+                "content_size": {
+                    "type": "integer"
+                },
                 "content_type": {
                     "type": "string"
+                }
+            }
+        },
+        "models.S3FileInfo": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/models.Content"
                 },
-                "created_at": {
-                    "type": "string"
-                },
-                "error": {
+                "file_id": {
                     "type": "string"
                 },
                 "file_key": {
@@ -107,11 +130,31 @@ const docTemplate = `{
                 },
                 "file_name": {
                     "type": "string"
+                }
+            }
+        },
+        "models.S3FileTask": {
+            "type": "object",
+            "properties": {
+                "completed_at": {
+                    "type": "string"
                 },
-                "file_size": {
-                    "type": "integer"
+                "created_at": {
+                    "type": "string"
+                },
+                "download_url": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "file_info": {
+                    "$ref": "#/definitions/models.S3FileInfo"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "processed_key": {
                     "type": "string"
                 },
                 "status": {
@@ -141,9 +184,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "key": {
-                    "type": "string"
-                },
-                "location": {
                     "type": "string"
                 },
                 "message": {

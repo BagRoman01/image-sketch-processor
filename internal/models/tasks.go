@@ -11,14 +11,18 @@ const (
 	TaskStatusFailed     TaskStatus = "failed"
 )
 
-type FileTask struct {
+type Task struct {
 	ID          string     `json:"id"`
-	FileKey     string     `json:"file_key"`
-	FileName    string     `json:"file_name"`
-	FileSize    int64      `json:"file_size"`
-	ContentType string     `json:"content_type"`
 	Status      TaskStatus `json:"status"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+	CompletedAt time.Time  `json:"completed_at,omitempty"`
 	Error       string     `json:"error,omitempty"`
+}
+
+type S3FileTask struct {
+	Task
+	ProcessedKey string     `json:"processed_key,omitempty"`
+	DownloadURL  string     `json:"download_url,omitempty"`
+	S3FileInfo   S3FileInfo `json:"file_info"`
 }

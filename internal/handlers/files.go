@@ -1,4 +1,3 @@
-// handlers/files_handler.go
 package handlers
 
 import (
@@ -12,25 +11,26 @@ import (
 )
 
 type FilesHandler struct {
-	S3storageSrv *services.S3storageService
+	FileSrv *services.FileService
 }
 
 func NewFilesHandler(serviceInjector *injectors.ServiceInjector) *FilesHandler {
 	return &FilesHandler{
-		S3storageSrv: serviceInjector.S3storageSrv,
+		FileSrv: serviceInjector.FileService,
 	}
 }
 
 // uploadFileStreaming godoc
-// @Summary      Загрузить файл в S3
-// @Description  Загружает файл напрямую в S3 без сохранения на диск
+// @Summary      Создать задачу на обработку изображения
+// @Description  Загружает изображение в S3 и создает задачу на .
 // @Tags         files
 // @Accept       multipart/form-data
 // @Produce      application/json
-// @Param        file formData file true "Файл для загрузки"
-// @Success      200  {object}  models.UploadResponse
-// @Failure      400
-// @Router       /file/streaming [post]
+// @Param        file  formData  file  true  "Изображение (JPG, PNG, max 10MB)"
+// @Success      200   {object}  models.UploadResponse  "Task создана, файл в S3"
+// @Failure      400   {object}  map[string]string      "Неверный файл"
+// @Failure      500   {object}  map[string]string      "Ошибка сервера"
+// @Router       /files [post]
 func (h *FilesHandler) UploadFileStreaming(c *gin.Context) {
 	logger := logging.LoggerFromContext(c.Request.Context())
 
@@ -49,7 +49,7 @@ func (h *FilesHandler) UploadFileStreaming(c *gin.Context) {
 		"ct", fileHeader.Header.Get("Content-Type"),
 	)
 
-	result, key, task, err := h.S3storageSrv.UploadFileStream(
+	result, task, err := h.FileSrv.UploadFileStream(
 		c.Request.Context(),
 		fileHeader,
 	)
@@ -68,16 +68,15 @@ func (h *FilesHandler) UploadFileStreaming(c *gin.Context) {
 
 	response := &models.UploadResponse{
 		Message:    "File uploaded successfully",
-		Key:        key,
-		Location:   result.Location,
-		URL:        h.S3storageSrv.S3Repo.GetFileURL(key),
+		Key:        task.S3FileInfo.FileKey,
+		URL:        result.Location,
 		Size:       fileHeader.Size,
 		TaskID:     task.ID,
 		TaskStatus: string(task.Status),
 	}
 
 	logger.Info("file uploaded successfully",
-		"key", key,
+		"key", task.S3FileInfo.FileKey,
 		"task_id", task.ID,
 	)
 
